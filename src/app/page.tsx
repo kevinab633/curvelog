@@ -40,26 +40,47 @@ export default function Home() {
   const [todayTotal, setTodayTotal] = useState(0);
 
   const loadSettings = useCallback(async () => {
+    // Load from localStorage first (works offline)
+    const defaultSettings: Settings = {
+      id: 0,
+      theme: "pinkish",
+      mode: "light",
+      onboardingDone: false,
+      programStartDate: null,
+      reminderEnabled: true,
+      weeklySchedule: DEFAULT_SCHEDULE,
+      saturdayChoice: "upper",
+    };
+    try {
+      const local = localStorage.getItem("curvelog_settings");
+      if (local) {
+        const parsed = JSON.parse(local);
+        setSettings(parsed);
+        if (!parsed.onboardingDone) setShowOnboarding(true);
+      }
+    } catch {}
+
+    // Try to sync from server
     try {
       const res = await fetch("/api/settings");
       const data = await res.json();
       setSettings(data);
+      try { localStorage.setItem("curvelog_settings", JSON.stringify(data)); } catch {}
       if (!data.onboardingDone) {
         setShowOnboarding(true);
       }
     } catch {
-      // use defaults
-      setSettings({
-        id: 0,
-        theme: "pinkish",
-        mode: "light",
-        onboardingDone: false,
-        programStartDate: null,
-        reminderEnabled: true,
-        weeklySchedule: DEFAULT_SCHEDULE,
-        saturdayChoice: "upper",
-      });
-      setShowOnboarding(true);
+      // offline - use local or defaults
+      try {
+        const local = localStorage.getItem("curvelog_settings");
+        if (!local) {
+          setSettings(defaultSettings);
+          setShowOnboarding(true);
+        }
+      } catch {
+        setSettings(defaultSettings);
+        setShowOnboarding(true);
+      }
     } finally {
       setLoading(false);
     }
@@ -73,6 +94,7 @@ export default function Home() {
     async (updates: Partial<Settings>) => {
       const newSettings = { ...settings, ...updates } as Settings;
       setSettings(newSettings);
+      try { localStorage.setItem("curvelog_settings", JSON.stringify(newSettings)); } catch {}
       try {
         await fetch("/api/settings", {
           method: "PUT",
@@ -80,7 +102,7 @@ export default function Home() {
           body: JSON.stringify(updates),
         });
       } catch {
-        // ignore
+        // offline - saved locally above
       }
     },
     [settings]

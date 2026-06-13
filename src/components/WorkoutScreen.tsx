@@ -19,6 +19,21 @@ interface WorkoutScreenProps {
   onChangeSaturdayChoice?: (c: string) => void;
 }
 
+const localKey = (dateStr: string, type: string) => `logs_${dateStr}_${type}`;
+
+function loadLocal(dateStr: string, type: string): ExerciseLog[] {
+  try {
+    const raw = localStorage.getItem(localKey(dateStr, type));
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function saveLocal(dateStr: string, type: string, logs: ExerciseLog[]) {
+  try {
+    localStorage.setItem(localKey(dateStr, type), JSON.stringify(logs));
+  } catch {}
+}
+
 export default function WorkoutScreen({
   workoutType,
   dateStr,
@@ -32,7 +47,6 @@ export default function WorkoutScreen({
   const [walkTimer, setWalkTimer] = useState(0);
   const [walkActive, setWalkActive] = useState(false);
 
-  // For flexible day
   const effectiveType =
     workoutType === "flexible"
       ? saturdayChoice === "rest"
@@ -45,22 +59,29 @@ export default function WorkoutScreen({
   const workout = WORKOUTS[effectiveType];
 
   const fetchLogs = useCallback(async () => {
+    // Always load from localStorage first (works offline)
+    const local = loadLocal(dateStr, effectiveType);
+    if (local.length > 0) setLogs(local);
+
+    // Try to sync from server
     try {
       const res = await fetch(`/api/logs?date=${dateStr}`);
       const data = await res.json();
       if (Array.isArray(data)) {
-        setLogs(
-          data
-            .filter((d: { workoutType: string }) => d.workoutType === effectiveType)
-            .map((d: { exerciseIndex: number; completed: boolean; setsCompleted: number }) => ({
-              exerciseIndex: d.exerciseIndex,
-              completed: d.completed,
-              setsCompleted: d.setsCompleted,
-            }))
-        );
+        const serverLogs = data
+          .filter((d: { workoutType: string }) => d.workoutType === effectiveType)
+          .map((d: { exerciseIndex: number; completed: boolean; setsCompleted: number }) => ({
+            exerciseIndex: d.exerciseIndex,
+            completed: d.completed,
+            setsCompleted: d.setsCompleted,
+          }));
+        if (serverLogs.length > 0) {
+          setLogs(serverLogs);
+          saveLocal(dateStr, effectiveType, serverLogs);
+        }
       }
     } catch {
-      // ignore
+      // offline - local data already loaded above
     } finally {
       setLoading(false);
     }
@@ -70,7 +91,6 @@ export default function WorkoutScreen({
     fetchLogs();
   }, [fetchLogs]);
 
-  // Walk timer
   useEffect(() => {
     if (!walkActive) return;
     const interval = setInterval(() => {
@@ -84,7 +104,6 @@ export default function WorkoutScreen({
     const newCompleted = !existing?.completed;
     const newSets = newCompleted ? (workout?.exercises[idx]?.sets || 0) : 0;
 
-    // Haptic feedback
     if (typeof navigator !== "undefined" && "vibrate" in navigator) {
       navigator.vibrate(50);
     }
@@ -97,18 +116,23 @@ export default function WorkoutScreen({
       newLogs.push({ exerciseIndex: idx, completed: newCompleted, setsCompleted: newSets });
     }
     setLogs(newLogs);
+    saveLocal(dateStr, effectiveType, newLogs);
 
-    await fetch("/api/logs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        dateStr,
-        workoutType: effectiveType,
-        exerciseIndex: idx,
-        completed: newCompleted,
-        setsCompleted: newSets,
-      }),
-    });
+    try {
+      await fetch("/api/logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dateStr,
+          workoutType: effectiveType,
+          exerciseIndex: idx,
+          completed: newCompleted,
+          setsCompleted: newSets,
+        }),
+      });
+    } catch {
+      // offline - saved locally above
+    }
   };
 
   const updateSets = async (idx: number, sets: number) => {
@@ -124,18 +148,23 @@ export default function WorkoutScreen({
       newLogs.push({ exerciseIndex: idx, completed, setsCompleted: clampedSets });
     }
     setLogs(newLogs);
+    saveLocal(dateStr, effectiveType, newLogs);
 
-    await fetch("/api/logs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        dateStr,
-        workoutType: effectiveType,
-        exerciseIndex: idx,
-        completed,
-        setsCompleted: clampedSets,
-      }),
-    });
+    try {
+      await fetch("/api/logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dateStr,
+          workoutType: effectiveType,
+          exerciseIndex: idx,
+          completed,
+          setsCompleted: clampedSets,
+        }),
+      });
+    } catch {
+      // offline - saved locally above
+    }
   };
 
   const completedCount = logs.filter((l) => l.completed).length;
@@ -152,7 +181,6 @@ export default function WorkoutScreen({
 
   return (
     <div className="min-h-screen pb-8" style={{ background: colors.bg }}>
-      {/* Header */}
       <div className="sticky top-0 z-10 px-4 py-3 flex items-center gap-3" style={{ background: colors.bg }}>
         <button
           onClick={onBack}
@@ -184,7 +212,6 @@ export default function WorkoutScreen({
         )}
       </div>
 
-      {/* Flexible day selector */}
       {workoutType === "flexible" && onChangeSaturdayChoice && (
         <div className="mx-4 mb-4 p-4 rounded-2xl" style={{ background: colors.card, border: `1px solid ${colors.cardBorder}` }}>
           <p className="text-sm font-semibold mb-3" style={{ color: colors.text }}>
@@ -212,7 +239,6 @@ export default function WorkoutScreen({
         </div>
       )}
 
-      {/* Warning */}
       {workout.warning && (
         <div
           className="mx-4 mb-4 p-4 rounded-2xl text-sm font-medium"
@@ -222,7 +248,6 @@ export default function WorkoutScreen({
         </div>
       )}
 
-      {/* Walk Timer for recovery */}
       {effectiveType === "recovery" && (
         <div className="mx-4 mb-4 p-4 rounded-2xl text-center" style={{ background: colors.card, border: `1px solid ${colors.cardBorder}` }}>
           <p className="text-sm font-semibold mb-2" style={{ color: colors.text }}>🚶 Walk Timer (25-30 min)</p>
@@ -248,7 +273,6 @@ export default function WorkoutScreen({
         </div>
       )}
 
-      {/* Progress bar */}
       {totalExercises > 0 && (
         <div className="mx-4 mb-4">
           <div className="h-2 rounded-full overflow-hidden" style={{ background: colors.bgSecondary }}>
@@ -263,7 +287,6 @@ export default function WorkoutScreen({
         </div>
       )}
 
-      {/* All done */}
       {allDone && (
         <div className="mx-4 mb-4 p-4 rounded-2xl text-center" style={{ background: colors.success + "15" }}>
           <p className="text-2xl mb-1">🎉</p>
@@ -273,7 +296,6 @@ export default function WorkoutScreen({
         </div>
       )}
 
-      {/* Exercises */}
       {loading ? (
         <div className="flex justify-center py-12">
           <div className="w-8 h-8 border-4 rounded-full animate-spin" style={{ borderColor: colors.bgSecondary, borderTopColor: colors.accent }} />
@@ -296,7 +318,6 @@ export default function WorkoutScreen({
               >
                 <div className="p-4">
                   <div className="flex items-start gap-3">
-                    {/* Checkbox */}
                     <button
                       onClick={() => toggleExercise(idx)}
                       className="mt-0.5 w-7 h-7 rounded-lg flex-shrink-0 flex items-center justify-center border-2 transition-all"
@@ -336,7 +357,6 @@ export default function WorkoutScreen({
                         {ex.sets} sets × {ex.reps}
                       </p>
 
-                      {/* Sets counter */}
                       <div className="flex items-center gap-2 mt-3">
                         <span className="text-xs font-medium" style={{ color: colors.textSecondary }}>
                           Sets:
@@ -360,7 +380,6 @@ export default function WorkoutScreen({
                     </div>
                   </div>
 
-                  {/* Video */}
                   {ex.video && (
                     <div className="mt-3">
                       <VideoPlayer
