@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 
 interface VideoPlayerProps {
   src: string;
@@ -11,8 +11,25 @@ interface VideoPlayerProps {
 export default function VideoPlayer({ src, name, accentColor, cardBg }: VideoPlayerProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isVisible, setIsVisible] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const fullVideoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Only load video when it scrolls into view
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "100px" }
+    );
+    if (containerRef.current) observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
@@ -30,48 +47,67 @@ export default function VideoPlayer({ src, name, accentColor, cardBg }: VideoPla
 
   return (
     <>
-      <div className="relative rounded-xl overflow-hidden" style={{ background: cardBg }}>
-        <video
-          ref={videoRef}
-          src={src}
-          loop
-          muted
-          playsInline
-          preload="metadata"
-          className="w-full aspect-video object-cover rounded-xl"
-          onClick={togglePlay}
-        />
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          {!isPlaying && (
-            <div
-              className="w-12 h-12 rounded-full flex items-center justify-center opacity-90"
-              style={{ background: accentColor }}
-            >
+      <div ref={containerRef} className="relative rounded-xl overflow-hidden" style={{ background: cardBg, minHeight: "120px" }}>
+        {!isVisible ? (
+          // Placeholder while not in view
+          <div className="w-full aspect-video rounded-xl flex items-center justify-center" style={{ background: cardBg }}>
+            <div className="w-10 h-10 rounded-full flex items-center justify-center opacity-40" style={{ background: accentColor }}>
               <svg className="w-5 h-5 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M8 5v14l11-7z" />
               </svg>
             </div>
-          )}
-        </div>
-        <button
-          onClick={(e) => { e.stopPropagation(); setIsFullscreen(true); }}
-          className="absolute top-2 right-2 w-8 h-8 rounded-lg flex items-center justify-center"
-          style={{ background: "rgba(0,0,0,0.5)" }}
-          title="Fullscreen"
-        >
-          <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
-          </svg>
-        </button>
-        <div className="absolute bottom-2 left-2 right-2 flex gap-2">
-          <button
-            onClick={(e) => { e.stopPropagation(); togglePlay(); }}
-            className="px-3 py-1 rounded-lg text-xs font-medium text-white"
-            style={{ background: "rgba(0,0,0,0.6)" }}
-          >
-            {isPlaying ? "⏸ Pause" : "▶ Play"}
-          </button>
-        </div>
+          </div>
+        ) : (
+          <>
+            <video
+              ref={videoRef}
+              src={src}
+              loop
+              muted
+              playsInline
+              preload="none"
+              className="w-full aspect-video object-cover rounded-xl"
+              onClick={togglePlay}
+              onLoadedMetadata={() => setHasLoaded(true)}
+            />
+            {!hasLoaded && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: accentColor + "40", borderTopColor: accentColor }} />
+              </div>
+            )}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              {!isPlaying && hasLoaded && (
+                <div
+                  className="w-12 h-12 rounded-full flex items-center justify-center opacity-90"
+                  style={{ background: accentColor }}
+                >
+                  <svg className="w-5 h-5 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </div>
+              )}
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); setIsFullscreen(true); }}
+              className="absolute top-2 right-2 w-8 h-8 rounded-lg flex items-center justify-center"
+              style={{ background: "rgba(0,0,0,0.5)" }}
+              title="Fullscreen"
+            >
+              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
+              </svg>
+            </button>
+            <div className="absolute bottom-2 left-2 right-2 flex gap-2">
+              <button
+                onClick={(e) => { e.stopPropagation(); togglePlay(); }}
+                className="px-3 py-1 rounded-lg text-xs font-medium text-white"
+                style={{ background: "rgba(0,0,0,0.6)" }}
+              >
+                {isPlaying ? "⏸ Pause" : "▶ Play"}
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       {isFullscreen && (
@@ -91,7 +127,6 @@ export default function VideoPlayer({ src, name, accentColor, cardBg }: VideoPla
           <div className="w-full max-w-2xl px-4">
             <p className="text-white text-center mb-3 font-semibold text-lg">{name}</p>
             <video
-              ref={fullVideoRef}
               src={src}
               loop
               controls
