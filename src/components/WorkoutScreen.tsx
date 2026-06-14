@@ -42,8 +42,12 @@ export default function WorkoutScreen({
   onBack,
   onChangeSaturdayChoice,
 }: WorkoutScreenProps) {
-  const [logs, setLogs] = useState<ExerciseLog[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [logs, setLogs] = useState<ExerciseLog[]>(() => loadLocal(dateStr, 
+    workoutType === "flexible"
+      ? "upper"
+      : workoutType
+  ));
+  const [loading, setLoading] = useState(false);
   const [walkTimer, setWalkTimer] = useState(0);
   const [walkActive, setWalkActive] = useState(false);
 
